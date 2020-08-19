@@ -1465,8 +1465,10 @@ static jl_value_t *jl_deserialize_value_code_instance(jl_serializer_state *s, jl
         jl_gc_wb(codeinst, codeinst->rettype_const);
     codeinst->rettype = jl_deserialize_value(s, &codeinst->rettype);
     jl_gc_wb(codeinst, codeinst->rettype);
-    if (constret)
+    if (constret) {
+        codeinst->specptr.fptr = (void*)1;
         codeinst->invoke = jl_fptr_const_return;
+    }
     if ((flags >> 3) & 1)
         codeinst->precompile = 1;
     codeinst->next = (jl_code_instance_t*)jl_deserialize_value(s, (jl_value_t**)&codeinst->next);

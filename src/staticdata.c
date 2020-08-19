@@ -805,6 +805,7 @@ static void jl_write_values(jl_serializer_state *s)
                 int8_t builtin_id = 0;
                 if (m->invoke == jl_fptr_const_return) {
                     fptr_id = JL_API_CONST;
+                    newm->specptr.fptr = (void*)1;
                 }
                 else {
                     if (jl_is_method(m->def->def.method)) {
@@ -1191,6 +1192,7 @@ static void jl_update_all_fptrs(jl_serializer_state *s)
             }
             else {
                 codeinst->invoke = (jl_callptr_t)fptr;
+                codeinst->specptr.fptr = (void*)1;
             }
         }
     }

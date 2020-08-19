@@ -156,7 +156,10 @@ static jl_callptr_t _jl_compile_codeinst(
                 this_code->specptr.fptr = (void*)getAddressForFunction(decls.specFunctionObject);
                 this_code->isspecsig = isspecsig;
             }
-            this_code->invoke = addr;
+            else {
+                this_code->specptr.fptr = (void*)1;
+            }
+            jl_atomic_store_release(&this_code->invoke, addr);
         }
         else if (this_code->invoke == jl_fptr_const_return && !decls.specFunctionObject.empty()) {
             // hack to export this pointer value to jl_dump_method_asm
@@ -325,8 +328,10 @@ jl_code_instance_t *jl_generate_fptr(jl_method_instance_t *mi JL_PROPAGATES_ROOT
 extern "C"
 void jl_generate_fptr_for_unspecialized(jl_code_instance_t *unspec)
 {
-    if (unspec->invoke != NULL)
+    if (jl_atomic_load_relaxed(&unspec->invoke) != NULL &&
+        jl_atomic_load_relaxed(&unspec->specptr.fptr) != NULL) {
         return;
+    }
     JL_LOCK(&codegen_lock);
     if (unspec->invoke == NULL) {
         jl_code_info_t *src = NULL;
@@ -348,9 +353,11 @@ void jl_generate_fptr_for_unspecialized(jl_code_instance_t *unspec)
         }
         assert(src && jl_is_code_info(src));
         _jl_compile_codeinst(unspec, src, unspec->min_world);
-        if (unspec->invoke == NULL)
+        if (unspec->invoke == NULL) {
             // if we hit a codegen bug (or ran into a broken generated function or llvmcall), fall back to the interpreter as a last resort
-            unspec->invoke = &jl_fptr_interpret_call;
+            unspec->specptr.fptr = (void*)1;
+            jl_atomic_store_release(&unspec->invoke, &jl_fptr_interpret_call);
+        }
         JL_GC_POP();
     }
     JL_UNLOCK(&codegen_lock); // Might GC
