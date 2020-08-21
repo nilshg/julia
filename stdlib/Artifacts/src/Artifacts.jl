@@ -3,15 +3,6 @@ module Artifacts
 import Base: get, SHA1
 using Base.BinaryPlatforms, Base.TOML
 
-# TODO:
-#  * Split download_artifact implementation into separate module? (Maybe not, if libcurl is nicely integrated)
-#  * Add utility functions to generate tree of primal hashes from tarball
-#    * Also utility functions to merge trees of primal hashes together
-#  * Add ability to extract pieces of artifact into directory
-#    * Need to be careful to extract only files that don't already exist or be sure we can overwrite
-#    * record stored primal hashes in TOML file in `~/.julia/artifacts/<treehash>/toml`
-#    * If all primal hashes merge to the root hash, delete the TOML file.
-
 export artifact_exists, artifact_path, remove_artifact, verify_artifact,
        artifact_meta, artifact_hash, find_artifacts_toml, @artifact_str
 
