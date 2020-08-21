@@ -2706,6 +2706,7 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
                     jl_method_t *minmaxm = minmax->method;
                     if (!jl_type_morespecific((jl_value_t*)minmaxm->sig, (jl_value_t*)m->sig)) {
                         minmax_ambig = 1;
+                        minmax = NULL;
                         *has_ambiguity = 1;
                         break;
                     }
@@ -2715,7 +2716,7 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
         //   - it may even dominate some choices that are not subtypes!
         //     move those into the subtype group, where we're filter them out shortly after
         //     (and avoid potentially reporting these as an ambiguity)
-        if (!all_subtypes && minmax && !minmax_ambig) {
+        if (!all_subtypes && minmax != NULL && !minmax_ambig) {
             jl_method_t *minmaxm = minmax->method;
             if (!include_ambiguous)
                 all_subtypes = 0;
@@ -2756,7 +2757,7 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
             env.matc = (jl_method_match_t*)jl_array_ptr_ref(env.t, i);
             jl_method_t *m = env.matc->method;
             int subt = env.matc->fully_covers != NOT_FULLY_COVERS;
-            if (minmax != NULL && !include_ambiguous && subt) {
+            if ((minmax != NULL || minmax_ambig) && !include_ambiguous && subt) {
                 continue; // already the biggest
             }
             for (j = 0; j < i; j++) {
@@ -2777,7 +2778,7 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
         // we stopped early with just having all non-subtypes before all
         // subtypes, but the case on the boundary might be wrongly placed:
         // check for that now
-        if (!minmax) {
+        if (minmax == NULL && !minmax_ambig) {
             for (i = 0; i < len; i++) {
                 jl_method_match_t *matc = (jl_method_match_t*)jl_array_ptr_ref(env.t, i);
                 if (matc->fully_covers == FULLY_COVERS)
@@ -2803,17 +2804,9 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
         }
         char *skip = (char*)alloca(len);
         memset(skip, 0, len);
-        // since we had a minmax method, now may now be able to cleanup some of our sort result
-        assert(minmax == NULL || !all_subtypes);
-        if (minmax_ambig && !include_ambiguous) {
-            for (i = 0; i < len; i++) {
-                jl_method_match_t *matc = (jl_method_match_t*)jl_array_ptr_ref(env.t, i);
-                if (matc->fully_covers != NOT_FULLY_COVERS) {
-                    skip[i] = 1;
-                }
-            }
-        }
-        else if (minmax != NULL && (!minmax_ambig || !include_ambiguous)) {
+        // if we had a minmax method (any subtypes), now may now be able to
+        // quickly cleanup some of our sort result
+        if (minmax != NULL || (minmax_ambig && !include_ambiguous)) {
             for (i = 0; i < len; i++) {
                 jl_method_match_t *matc = (jl_method_match_t*)jl_array_ptr_ref(env.t, i);
                 if (minmax != matc && matc->fully_covers != NOT_FULLY_COVERS) {
