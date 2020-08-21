@@ -476,20 +476,86 @@ function _artifact_str(__module__, artifacts_toml, name, artifact_dict, hash)
 end
 
 """
+    split_artifact_slash(name::AbstractString)
+
+Splits an artifact indexing string by path deliminters, isolates the first path element,
+returning that and the `joinpath()` of the remaining arguments.  This normalizes all path
+separators to the native path separator for the current platform.  Examples:
+
+# Examples
+```jldoctest
+julia> split_artifact_slash("Foo")
+("Foo", "")
+
+julia> ret = split_artifact_slash("Foo/bar/baz.so");
+
+julia> if Sys.iswindows()
+            ret == ("Foo", "bar\\baz.so")
+       else
+            ret == ("Foo", "bar/baz.so")
+       end
+true
+
+julia> ret = split_artifact_slash("Foo\\bar\\baz.so");
+
+julia> if Sys.iswindows()
+            ret == ("Foo", "bar\\baz.so")
+       else
+            ret == ("Foo", "bar/baz.so")
+       end
+true
+```
+"""
+function split_artifact_slash(name::AbstractString)
+    split_name = split(name, r"(/|\\)")
+    if length(split_name) == 1
+        return (split_name[1], "")
+    else
+        return (split_name[1], joinpath(split_name[2:end]...))
+    end
+end
+
+"""
+    artifact_slash_lookup(name::AbstractString, artifacts_toml::AbstractString)
+
+Returns `artifact_name`, `artifact_path_tail`, and `hash` by looking the results up in
+the given `artifacts_toml`, first extracting the name and path tail from the given `name`
+to support slash-indexing within the given artifact.
+"""
+function artifact_slash_lookup(name::AbstractString, artifacts_toml::AbstractString)
+    artifact_name, artifact_path_tail = split_artifact_slash(name)
+
+    meta = artifact_meta(artifact_name, artifact_dict, artifacts_toml)
+    if meta === nothing
+        error("Cannot locate artifact '$(name)' in '$(artifacts_toml)'")
+    end
+    hash = SHA1(meta["git-tree-sha1"])
+    return artifact_name, artifact_path_tail, hash
+end
+
+"""
     macro artifact_str(name)
 
 Macro that is used to automatically ensure an artifact is installed, and return its
 location on-disk.  Automatically looks the artifact up by name in the project's
-`(Julia)Artifacts.toml` file.  Throws an error on inability to install the requested artifact.
-If run in the REPL, searches for the toml file starting in the current directory, see
-`find_artifacts_toml()` for more.
+`(Julia)Artifacts.toml` file.  Throws an error on inability to install the requested
+artifact.  If run in the REPL, searches for the toml file starting in the current
+directory, see `find_artifacts_toml()` for more.
+
+If `name` contains a forward or backward slash, all elements after the first slash will
+be taken to be path names indexing into the artifact, allowing for an easy one-liner to
+access a single file/directory within an artifact.  Example:
+
+    ffmpeg_path = @artifact"FFMPEG/bin/ffmpeg"
 
 !!! compat "Julia 1.3"
     This macro requires at least Julia 1.3.
+
+!!! compat "Julia 1.6"
+    Slash-indexing requires at least Julia 1.6.
 """
 macro artifact_str(name)
-    # Load Artifacts.toml at compile time, so that we don't have to use `__source__.file`
-    # at runtime, which gets stale if the `.ji` file is relocated.
+    # Find Artifacts.toml file we're going to load from
     srcfile = string(__source__.file)
     if ((isinteractive() && startswith(srcfile, "REPL[")) || (!isinteractive() && srcfile == "none")) && !isfile(srcfile)
         srcfile = pwd()
@@ -505,17 +571,26 @@ macro artifact_str(name)
         ))
     end
 
+    # Load Artifacts.toml at compile time, so that we don't have to use `__source__.file`
+    # at runtime, which gets stale if the `.ji` file is relocated.
+    local artifact_dict = load_artifacts_toml(artifacts_toml)
+
     # Invalidate calling .ji file if Artifacts.toml file changes
     Base.include_dependency(artifacts_toml)
 
-    local artifact_dict = load_artifacts_toml(artifacts_toml)
-    local meta = artifact_meta(name, artifact_dict, artifacts_toml)
-    if meta === nothing
-        error("Cannot locate artifact '$(name)' in '$(artifacts_toml)'")
-    end
-    local hash = SHA1(meta["git-tree-sha1"])
-    return quote
-        Base.invokelatest(_artifact_str, $(__module__), $(artifacts_toml), $(esc(name)), $(artifact_dict), $(hash))
+    # If `name` is a constant, we can actually load and parse the `Artifacts.toml` file now,
+    # saving the work from runtime.
+    if isa(name, AbstractString)
+        # To support slash-indexing, we need to split the artifact name from the path tail:
+        local artifact_name, artifact_path_tail, hash = artifact_slash_lookup(name, artifacts_toml)
+        return quote
+            Base.invokelatest(_artifact_str, $(__module__), $(artifacts_toml), $(artifact_name), $(artifact_path_tail), $(artifact_dict), $(hash))
+        end
+    else
+        return quote
+            local artifact_name, artifact_path_tail, hash = artifact_slash_lookup($(esc(name)), $(artifacts_toml))
+            Base.invokelatest(_artifact_str, $(__module__), $(artifacts_toml), artifact_name, artifact_path_tail, $(artifact_dict), hash)
+        end
     end
 end
 
