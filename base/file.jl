@@ -468,6 +468,11 @@ weird permissions a user may have created directories with within the temporary 
 it will always be deleted.
 """
 function prepare_for_deletion(path::AbstractString)
+    # Nothing to do for non-directories
+    if !isdir(path)
+        return
+    end
+
     try chmod(path, filemode(path) | 0o220)
     catch; end
     for (root, dirs, files) in walkdir(path)
