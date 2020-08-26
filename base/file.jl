@@ -484,6 +484,7 @@ function temp_cleanup_purge(; force::Bool=false)
             if (force || asap) && ispath(path)
                 need_gc && GC.gc(true)
                 need_gc = false
+                chmod(path, 0o777; recursive=true)
                 rm(path, recursive=true, force=true)
             end
             !ispath(path) && delete!(TEMP_CLEANUP, path)
@@ -682,7 +683,10 @@ function mktempdir(fn::Function, parent::AbstractString=tempdir();
         fn(tmpdir)
     finally
         try
-            ispath(tmpdir) && rm(tmpdir, recursive=true)
+            if ispath(tmpdir)
+                chmod(tmpdir, 0o777; recursive=true)
+                rm(tmpdir, recursive=true)
+            end
         catch ex
             @error "mktempdir cleanup" _group=:file exception=(ex, catch_backtrace())
             # might be possible to remove later
